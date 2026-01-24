@@ -1,0 +1,576 @@
+<#
+.SYNOPSIS
+    Intune Proactive Remediation - Generic Registry Management Template
+.DESCRIPTION
+    Self-contained script for detecting and remediating registry settings.
+    Runs as SYSTEM and can modify both machine and per-user registry settings.
+    Supports multiple configuration groups organized by scope (User/Machine).
+    Supports both traditional AD (S-1-5-21-*) and Azure AD/Entra ID (S-1-12-1-*) joined devices.
+    Supports setting, deleting values, and deleting entire registry keys.
+    
+    USAGE:
+    1. Copy this template
+    2. Modify the CONFIGURATION section below for your use case
+    3. Save as detection script ($runRemediation = $false)
+    4. Save as remediation script ($runRemediation = $true)
+    5. Upload both to Intune Proactive Remediations
+.NOTES
+    Author: Martin Bengtsson
+    Version: 3.1
+    
+    Supported registry types: String, ExpandString, DWord, QWord, Binary, MultiString
+    Supported actions: Set (default), Delete (value), DeleteKey (entire key)
+    Scopes: $UserConfigs (per-user via HKU), $MachineConfigs (HKLM)
+#>
+
+#region ==================== CONFIGURATION - MODIFY THIS SECTION ====================
+
+<#
+.QUICK START GUIDE
+    
+    This script manages registry settings for Intune Proactive Remediations.
+    Modify the configuration sections below to suit your needs.
+    
+    STEP 1: CHOOSE YOUR SCOPE
+    ─────────────────────────
+    • $UserConfigs  = Settings applied to EACH USER (HKCU/HKU)
+                      Use for: User preferences, app settings per user
+    • $MachineConfigs = Settings applied to the MACHINE (HKLM)
+                      Use for: System-wide policies, machine settings
+    
+    STEP 2: ADD A CONFIGURATION GROUP
+    ──────────────────────────────────
+    Copy this template and fill in your values:
+    
+    @{
+        Name        = "My Setting Name"           # Friendly name (shown in logs)
+        Description = "What this setting does"    # Description (shown in logs)
+        BasePath    = "SOFTWARE\MyCompany\MyApp"  # Registry path WITHOUT HKCU/HKLM
+        Settings    = @(
+            # Add your settings here (see Step 3)
+        )
+    }
+    
+    STEP 3: ADD SETTINGS (choose one action type per setting)
+    ─────────────────────────────────────────────────────────
+    
+    ACTION: SET (create or update a value) - This is the default if Action is omitted
+    @{ Name = "ValueName"; Type = "String"; Value = "MyValue" }
+    @{ Name = "ValueName"; Type = "DWord"; Value = 1 }
+    
+    ACTION: DELETE (remove a specific value)
+    @{ Action = "Delete"; Name = "ValueName" }
+    
+    ACTION: DELETEKEY (remove an entire registry key and all its contents)
+    @{ Action = "DeleteKey"; Name = "SubKeyName" }
+    
+    SUPPORTED TYPES FOR SET ACTION
+    ──────────────────────────────
+    • String       = Text value                    Example: "Hello World"
+    • DWord        = 32-bit number (0-4294967295)  Example: 1
+    • QWord        = 64-bit number                 Example: 9999999999
+    • Binary       = Hex bytes, comma-separated   Example: "00,01,ff,ab"
+    • ExpandString = String with %variables%       Example: "%USERPROFILE%\Desktop"
+    • MultiString  = Multiple strings, pipe-sep   Example: "Value1|Value2|Value3"
+    
+    EXAMPLES
+    ────────
+    Example 1: Set a simple string value in HKCU
+        $UserConfigs = @(
+            @{
+                Name        = "App Setting"
+                Description = "Configure my app"
+                BasePath    = "SOFTWARE\MyApp"
+                Settings    = @(
+                    @{ Name = "Language"; Type = "String"; Value = "en-US" }
+                )
+            }
+        )
+    
+    Example 2: Set a DWORD policy in HKLM
+        $MachineConfigs = @(
+            @{
+                Name        = "Disable Feature X"
+                Description = "Disable Feature X via registry"
+                BasePath    = "SOFTWARE\Policies\MyCompany"
+                Settings    = @(
+                    @{ Name = "DisableFeatureX"; Type = "DWord"; Value = 1 }
+                )
+            }
+        )
+    
+    Example 3: Delete an unwanted value from HKCU
+        $UserConfigs = @(
+            @{
+                Name        = "Remove Telemetry"
+                Description = "Delete telemetry setting"
+                BasePath    = "SOFTWARE\MyApp"
+                Settings    = @(
+                    @{ Action = "Delete"; Name = "TelemetryEnabled" }
+                )
+            }
+        )
+    
+    Example 4: Delete an entire registry key from HKLM
+        $MachineConfigs = @(
+            @{
+                Name        = "Remove Legacy App"
+                Description = "Delete old app registry key"
+                BasePath    = "SOFTWARE"
+                Settings    = @(
+                    @{ Action = "DeleteKey"; Name = "OldAppToRemove" }
+                )
+            }
+        )
+    
+    STEP 4: SET SCRIPT MODE
+    ───────────────────────
+    At the bottom of this configuration section:
+    • $runRemediation = $false  → Detection only (reports issues, no changes)
+    • $runRemediation = $true   → Remediation (fixes issues)
+    
+    For Intune: Create TWO copies of this script:
+    1. Detection script:   $runRemediation = $false
+    2. Remediation script: $runRemediation = $true
+#>
+
+# ============ USER CONFIGURATIONS (HKCU / HKU) ============
+$UserConfigs = @(
+    @{
+        Name        = "Outlook Font Settings"
+        Description = "Verdana 10pt as default font for compose, reply, and plain text"
+        BasePath    = "SOFTWARE\Microsoft\Office\16.0\Common\MailSettings"
+        Settings    = @(
+            @{
+                Name  = "ComposeFontSimple"
+                Type  = "Binary"
+                Value = "3c,00,00,00,1f,00,00,f8,00,00,00,40,c8,00,00,00,00,00,00,00,00,00,00,00,00,22,56,65,72,64,61,6e,61,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00"
+            }
+            @{
+                Name  = "ComposeFontComplex"
+                Type  = "Binary"
+                Value = "3c,68,74,6d,6c,3e,0d,0a,0d,0a,3c,68,65,61,64,3e,0d,0a,3c,73,74,79,6c,65,3e,0d,0a,0d,0a,20,2f,2a,20,53,74,79,6c,65,20,44,65,66,69,6e,69,74,69,6f,6e,73,20,2a,2f,0d,0a,20,73,70,61,6e,2e,50,65,72,73,6f,6e,61,6c,43,6f,6d,70,6f,73,65,53,74,79,6c,65,0d,0a,09,7b,6d,73,6f,2d,73,74,79,6c,65,2d,6e,61,6d,65,3a,22,50,65,72,73,6f,6e,61,6c,20,43,6f,6d,70,6f,73,65,20,53,74,79,6c,65,22,3b,0d,0a,09,6d,73,6f,2d,73,74,79,6c,65,2d,74,79,70,65,3a,70,65,72,73,6f,6e,61,6c,2d,63,6f,6d,70,6f,73,65,3b,0d,0a,09,6d,73,6f,2d,73,74,79,6c,65,2d,6e,6f,73,68,6f,77,3a,79,65,73,3b,0d,0a,09,6d,73,6f,2d,73,74,79,6c,65,2d,75,6e,68,69,64,65,3a,6e,6f,3b,0d,0a,09,6d,73,6f,2d,61,6e,73,69,2d,66,6f,6e,74,2d,73,69,7a,65,3a,31,30,2e,30,70,74,3b,0d,0a,09,6d,73,6f,2d,62,69,64,69,2d,66,6f,6e,74,2d,73,69,7a,65,3a,31,31,2e,30,70,74,3b,0d,0a,09,66,6f,6e,74,2d,66,61,6d,69,6c,79,3a,22,56,65,72,64,61,6e,61,22,2c,73,61,6e,73,2d,73,65,72,69,66,3b,0d,0a,09,6d,73,6f,2d,61,73,63,69,69,2d,66,6f,6e,74,2d,66,61,6d,69,6c,79,3a,56,65,72,64,61,6e,61,3b,0d,0a,09,6d,73,6f,2d,68,61,6e,73,69,2d,66,6f,6e,74,2d,66,61,6d,69,6c,79,3a,56,65,72,64,61,6e,61,3b,0d,0a,09,6d,73,6f,2d,62,69,64,69,2d,66,6f,6e,74,2d,66,61,6d,69,6c,79,3a,22,54,69,6d,65,73,20,4e,65,77,20,52,6f,6d,61,6e,22,3b,0d,0a,09,6d,73,6f,2d,62,69,64,69,2d,74,68,65,6d,65,2d,66,6f,6e,74,3a,6d,69,6e,6f,72,2d,62,69,64,69,3b,0d,0a,09,63,6f,6c,6f,72,3a,77,69,6e,64,6f,77,74,65,78,74,3b,7d,0d,0a,2d,2d,3e,0d,0a,3c,2f,73,74,79,6c,65,3e,0d,0a,3c,2f,68,65,61,64,3e,0d,0a,0d,0a,3c,2f,68,74,6d,6c,3e,0d,0a"
+            }
+            @{
+                Name  = "ReplyFontSimple"
+                Type  = "Binary"
+                Value = "3c,00,00,00,1f,00,00,f8,00,00,00,40,c8,00,00,00,00,00,00,00,00,00,00,00,00,22,56,65,72,64,61,6e,61,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00"
+            }
+            @{
+                Name  = "ReplyFontComplex"
+                Type  = "Binary"
+                Value = "3c,68,74,6d,6c,3e,0d,0a,0d,0a,3c,68,65,61,64,3e,0d,0a,3c,73,74,79,6c,65,3e,0d,0a,0d,0a,20,2f,2a,20,53,74,79,6c,65,20,44,65,66,69,6e,69,74,69,6f,6e,73,20,2a,2f,0d,0a,20,73,70,61,6e,2e,50,65,72,73,6f,6e,61,6c,52,65,70,6c,79,53,74,79,6c,65,0d,0a,09,7b,6d,73,6f,2d,73,74,79,6c,65,2d,6e,61,6d,65,3a,22,50,65,72,73,6f,6e,61,6c,20,52,65,70,6c,79,20,53,74,79,6c,65,22,3b,0d,0a,09,6d,73,6f,2d,73,74,79,6c,65,2d,74,79,70,65,3a,70,65,72,73,6f,6e,61,6c,2d,72,65,70,6c,79,3b,0d,0a,09,6d,73,6f,2d,73,74,79,6c,65,2d,6e,6f,73,68,6f,77,3a,79,65,73,3b,0d,0a,09,6d,73,6f,2d,73,74,79,6c,65,2d,75,6e,68,69,64,65,3a,6e,6f,3b,0d,0a,09,6d,73,6f,2d,61,6e,73,69,2d,66,6f,6e,74,2d,73,69,7a,65,3a,31,30,2e,30,70,74,3b,0d,0a,09,6d,73,6f,2d,62,69,64,69,2d,66,6f,6e,74,2d,73,69,7a,65,3a,31,31,2e,30,70,74,3b,0d,0a,09,66,6f,6e,74,2d,66,61,6d,69,6c,79,3a,22,56,65,72,64,61,6e,61,22,2c,73,61,6e,73,2d,73,65,72,69,66,3b,0d,0a,09,6d,73,6f,2d,61,73,63,69,69,2d,66,6f,6e,74,2d,66,61,6d,69,6c,79,3a,56,65,72,64,61,6e,61,3b,0d,0a,09,6d,73,6f,2d,68,61,6e,73,69,2d,66,6f,6e,74,2d,66,61,6d,69,6c,79,3a,56,65,72,64,61,6e,61,3b,0d,0a,09,6d,73,6f,2d,62,69,64,69,2d,66,6f,6e,74,2d,66,61,6d,69,6c,79,3a,22,54,69,6d,65,73,20,4e,65,77,20,52,6f,6d,61,6e,22,3b,0d,0a,09,6d,73,6f,2d,62,69,64,69,2d,74,68,65,6d,65,2d,66,6f,6e,74,3a,6d,69,6e,6f,72,2d,62,69,64,69,3b,0d,0a,09,63,6f,6c,6f,72,3a,77,69,6e,64,6f,77,74,65,78,74,3b,7d,0d,0a,2d,2d,3e,0d,0a,3c,2f,73,74,79,6c,65,3e,0d,0a,3c,2f,68,65,61,64,3e,0d,0a,0d,0a,3c,2f,68,74,6d,6c,3e,0d,0a"
+            }
+            @{
+                Name  = "TextFontSimple"
+                Type  = "Binary"
+                Value = "3c,00,00,00,1f,00,00,f8,00,00,00,40,c8,00,00,00,00,00,00,00,00,00,00,00,00,22,56,65,72,64,61,6e,61,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00"
+            }
+            @{
+                Name  = "TextFontComplex"
+                Type  = "Binary"
+                Value = "3c,68,74,6d,6c,3e,0d,0a,0d,0a,3c,68,65,61,64,3e,0d,0a,3c,73,74,79,6c,65,3e,0d,0a,0d,0a,20,2f,2a,20,53,74,79,6c,65,20,44,65,66,69,6e,69,74,69,6f,6e,73,20,2a,2f,0d,0a,20,70,2e,4d,73,6f,50,6c,61,69,6e,54,65,78,74,2c,20,6c,69,2e,4d,73,6f,50,6c,61,69,6e,54,65,78,74,2c,20,64,69,76,2e,4d,73,6f,50,6c,61,69,6e,54,65,78,74,0d,0a,09,7b,6d,73,6f,2d,73,74,79,6c,65,2d,6e,6f,73,68,6f,77,3a,79,65,73,3b,0d,0a,09,6d,73,6f,2d,73,74,79,6c,65,2d,70,72,69,6f,72,69,74,79,3a,39,39,3b,0d,0a,09,6d,73,6f,2d,73,74,79,6c,65,2d,6c,69,6e,6b,3a,22,50,6c,61,69,6e,20,54,65,78,74,20,43,68,61,72,22,3b,0d,0a,09,6d,61,72,67,69,6e,3a,30,63,6d,3b,0d,0a,09,6d,73,6f,2d,70,61,67,69,6e,61,74,69,6f,6e,3a,77,69,64,6f,77,2d,6f,72,70,68,61,6e,3b,0d,0a,09,66,6f,6e,74,2d,73,69,7a,65,3a,31,30,2e,30,70,74,3b,0d,0a,09,6d,73,6f,2d,62,69,64,69,2d,66,6f,6e,74,2d,73,69,7a,65,3a,31,30,2e,35,70,74,3b,0d,0a,09,66,6f,6e,74,2d,66,61,6d,69,6c,79,3a,22,56,65,72,64,61,6e,61,22,2c,73,61,6e,73,2d,73,65,72,69,66,3b,0d,0a,09,6d,73,6f,2d,66,61,72,65,61,73,74,2d,66,6f,6e,74,2d,66,61,6d,69,6c,79,3a,41,70,74,6f,73,3b,0d,0a,09,6d,73,6f,2d,66,61,72,65,61,73,74,2d,74,68,65,6d,65,2d,66,6f,6e,74,3a,6d,69,6e,6f,72,2d,6c,61,74,69,6e,3b,0d,0a,09,6d,73,6f,2d,62,69,64,69,2d,66,6f,6e,74,2d,66,61,6d,69,6c,79,3a,22,54,69,6d,65,73,20,4e,65,77,20,52,6f,6d,61,6e,22,3b,0d,0a,09,6d,73,6f,2d,62,69,64,69,2d,74,68,65,6d,65,2d,66,6f,6e,74,3a,6d,69,6e,6f,72,2d,62,69,64,69,3b,0d,0a,09,6d,73,6f,2d,66,61,72,65,61,73,74,2d,6c,61,6e,67,75,61,67,65,3a,45,4e,2d,55,53,3b,7d,0d,0a,2d,2d,3e,0d,0a,3c,2f,73,74,79,6c,65,3e,0d,0a,3c,2f,68,65,61,64,3e,0d,0a,0d,0a,3c,2f,68,74,6d,6c,3e,0d,0a"
+            }
+        )
+    }
+)
+
+# ============ MACHINE CONFIGURATIONS (HKLM) ============
+$MachineConfigs = @(
+    @{
+        Name        = "Windows Paths"
+        Description = "Standard Windows installation paths (example - always compliant)"
+        BasePath    = "SOFTWARE\Microsoft\Windows\CurrentVersion"
+        Settings    = @(
+            @{
+                Name  = "ProgramFilesDir"
+                Type  = "String"
+                Value = "C:\Program Files"
+            }
+            @{
+                Name  = "CommonFilesDir"
+                Type  = "String"
+                Value = "C:\Program Files\Common Files"
+            }
+        )
+    }
+)
+
+# Script behavior - change this for detection vs remediation script
+$runRemediation = $true  # $false = detection only, $true = detection + remediation
+
+#endregion ==================== END CONFIGURATION ========================================
+
+
+#region ==================== DO NOT MODIFY BELOW THIS LINE ===============================
+
+#region Helper Functions
+
+function Get-RegistryValue {
+    <#
+    .SYNOPSIS
+        Gets a registry value, returning appropriate format based on type.
+    #>
+    param (
+        [string]$Path,
+        [string]$Name,
+        [string]$Type
+    )
+    
+    try {
+        if (-not (Test-Path -Path $Path)) { return $null }
+        
+        $value = Get-ItemPropertyValue -Path $Path -Name $Name -ErrorAction Stop
+        
+        # Convert binary to hex string for comparison
+        if ($Type -eq "Binary") {
+            return ($value | ForEach-Object { '{0:x2}' -f $_ }) -join ','
+        }
+        
+        # Convert MultiString array to comparable format
+        if ($Type -eq "MultiString") {
+            return ($value -join "|")
+        }
+        
+        return $value
+    }
+    catch {
+        return $null
+    }
+}
+
+function Set-RegistryValue {
+    <#
+    .SYNOPSIS
+        Sets a registry value with the specified type.
+    #>
+    param (
+        [string]$Path,
+        [string]$Name,
+        [string]$Type,
+        $Value
+    )
+    
+    # Ensure registry key exists
+    if (-not (Test-Path -Path $Path)) {
+        New-Item -Path $Path -Force | Out-Null
+    }
+    
+    # Convert value based on type
+    $regType = $Type
+    $regValue = $Value
+    
+    switch ($Type) {
+        "Binary" {
+            [byte[]]$regValue = $Value.Split(',') | ForEach-Object { [Convert]::ToByte($_, 16) }
+        }
+        "DWord" {
+            $regValue = [int]$Value
+        }
+        "QWord" {
+            $regValue = [long]$Value
+        }
+        "MultiString" {
+            if ($Value -is [string]) {
+                $regValue = $Value -split '\|'
+            }
+        }
+        "ExpandString" {
+            $regType = "ExpandString"
+        }
+        "String" {
+            $regType = "String"
+        }
+    }
+    
+    Set-ItemProperty -Path $Path -Name $Name -Value $regValue -Type $regType -Force
+}
+
+function Compare-RegistryValue {
+    <#
+    .SYNOPSIS
+        Compares current registry value with expected value.
+    #>
+    param (
+        $CurrentValue,
+        $ExpectedValue,
+        [string]$Type
+    )
+    
+    if ($null -eq $CurrentValue) { return $false }
+    
+    switch ($Type) {
+        "MultiString" {
+            $expected = if ($ExpectedValue -is [array]) { $ExpectedValue -join "|" } else { $ExpectedValue }
+            return ($CurrentValue -eq $expected)
+        }
+        default {
+            return ($CurrentValue -eq $ExpectedValue)
+        }
+    }
+}
+
+function Test-RegistryCompliance {
+    <#
+    .SYNOPSIS
+        Tests a single registry setting for compliance and optionally remediates.
+        Supports Set (default), Delete, and DeleteKey actions.
+    #>
+    param (
+        [string]$Path,
+        [hashtable]$Setting,
+        [bool]$Remediate
+    )
+    
+    # Default action is Set if not specified
+    $action = if ($Setting.Action) { $Setting.Action } else { "Set" }
+    
+    $result = [PSCustomObject]@{
+        Name               = $Setting.Name
+        Path               = $Path
+        Action             = $action
+        NeedsRemediation   = $false
+        RemediationSuccess = $null
+        Message            = ""
+    }
+    
+    switch ($action) {
+        "DeleteKey" {
+            # Check if key exists (path + subkey name)
+            $keyPath = Join-Path $Path $Setting.Name
+            $keyExists = Test-Path -Path $keyPath
+            
+            if ($keyExists) {
+                $result.NeedsRemediation = $true
+                
+                if ($Remediate) {
+                    try {
+                        Remove-Item -Path $keyPath -Recurse -Force -ErrorAction Stop
+                        
+                        if (-not (Test-Path -Path $keyPath)) {
+                            $result.RemediationSuccess = $true
+                            $result.Message = "[DELETED KEY] $($Setting.Name)"
+                        }
+                        else {
+                            $result.RemediationSuccess = $false
+                            $result.Message = "[ERROR] $($Setting.Name) - Key still exists after deletion"
+                        }
+                    }
+                    catch {
+                        $result.RemediationSuccess = $false
+                        $result.Message = "[ERROR] $($Setting.Name) - $($_.Exception.Message)"
+                    }
+                }
+                else {
+                    $result.Message = "[NON-COMPLIANT] $($Setting.Name) (key exists, should be deleted)"
+                }
+            }
+            else {
+                $result.Message = "[COMPLIANT] $($Setting.Name) (key absent)"
+            }
+        }
+        
+        "Delete" {
+            # Check if value exists
+            $valueExists = $false
+            if (Test-Path -Path $Path) {
+                $regKey = Get-Item -Path $Path -ErrorAction SilentlyContinue
+                if ($regKey -and $Setting.Name -in $regKey.GetValueNames()) {
+                    $valueExists = $true
+                }
+            }
+            
+            if ($valueExists) {
+                $result.NeedsRemediation = $true
+                
+                if ($Remediate) {
+                    try {
+                        Remove-ItemProperty -Path $Path -Name $Setting.Name -Force -ErrorAction Stop
+                        
+                        # Verify deletion
+                        $regKey = Get-Item -Path $Path -ErrorAction SilentlyContinue
+                        if (-not ($Setting.Name -in $regKey.GetValueNames())) {
+                            $result.RemediationSuccess = $true
+                            $result.Message = "[DELETED] $($Setting.Name)"
+                        }
+                        else {
+                            $result.RemediationSuccess = $false
+                            $result.Message = "[ERROR] $($Setting.Name) - Value still exists after deletion"
+                        }
+                    }
+                    catch {
+                        $result.RemediationSuccess = $false
+                        $result.Message = "[ERROR] $($Setting.Name) - $($_.Exception.Message)"
+                    }
+                }
+                else {
+                    $result.Message = "[NON-COMPLIANT] $($Setting.Name) (exists, should be deleted)"
+                }
+            }
+            else {
+                $result.Message = "[COMPLIANT] $($Setting.Name) (absent)"
+            }
+        }
+        
+        default {
+            # "Set" action - original behavior
+            $currentValue = Get-RegistryValue -Path $Path -Name $Setting.Name -Type $Setting.Type
+            $isCompliant = Compare-RegistryValue -CurrentValue $currentValue -ExpectedValue $Setting.Value -Type $Setting.Type
+            
+            if (-not $isCompliant) {
+                $result.NeedsRemediation = $true
+                $displayCurrent = if ($null -eq $currentValue) { "not set" } else { "different" }
+                
+                if ($Remediate) {
+                    try {
+                        Set-RegistryValue -Path $Path -Name $Setting.Name -Type $Setting.Type -Value $Setting.Value -ErrorAction Stop
+                        
+                        # Verify
+                        $newValue = Get-RegistryValue -Path $Path -Name $Setting.Name -Type $Setting.Type
+                        if (Compare-RegistryValue -CurrentValue $newValue -ExpectedValue $Setting.Value -Type $Setting.Type) {
+                            $result.RemediationSuccess = $true
+                            $result.Message = "[REMEDIATED] $($Setting.Name)"
+                        }
+                        else {
+                            $result.RemediationSuccess = $false
+                            $result.Message = "[ERROR] $($Setting.Name) - Verification failed after remediation"
+                        }
+                    }
+                    catch {
+                        $result.RemediationSuccess = $false
+                        $result.Message = "[ERROR] $($Setting.Name) - $($_.Exception.Message)"
+                    }
+                }
+                else {
+                    $result.Message = "[NON-COMPLIANT] $($Setting.Name) ($displayCurrent)"
+                }
+            }
+            else {
+                $result.Message = "[COMPLIANT] $($Setting.Name)"
+            }
+        }
+    }
+    
+    return $result
+}
+
+#endregion
+
+#region Main Execution
+
+Write-Output "=========================================="
+Write-Output "Registry Management - $(if ($runRemediation) { 'REMEDIATION' } else { 'DETECTION' })"
+Write-Output "=========================================="
+
+$results = @()
+
+# Cache user SIDs once if any User configs exist
+$cachedUserSIDs = $null
+if ($UserConfigs.Count -gt 0) {
+    $cachedUserSIDs = (Get-ChildItem "Registry::HKEY_USERS" -ErrorAction SilentlyContinue).PSChildName | 
+        Where-Object { $_ -match '^S-1-(5-21|12-1)-\d+-\d+-\d+-\d+$' }
+    
+    if (-not $cachedUserSIDs) {
+        Write-Output "[INFO] No user SIDs found - using HKCU fallback (not running as SYSTEM)"
+    }
+}
+
+# Process USER configurations
+if ($UserConfigs.Count -gt 0) {
+    Write-Output ""
+    Write-Output "=========================================="
+    Write-Output "USER CONFIGURATIONS"
+    Write-Output "=========================================="
+    
+    $configNum = 0
+    foreach ($config in $UserConfigs) {
+        $configNum++
+        Write-Output ""
+        Write-Output "Config $configNum of $($UserConfigs.Count): $($config.Name)"
+        Write-Output "Description: $($config.Description)"
+        Write-Output "Path: HKU:\<SID>\$($config.BasePath)"
+        Write-Output "------------------------------------------"
+        
+        # Get registry paths for all users
+        if ($cachedUserSIDs) {
+            $registryPaths = foreach ($sid in $cachedUserSIDs) {
+                "Registry::HKEY_USERS\$sid\$($config.BasePath)"
+            }
+        }
+        else {
+            $registryPaths = @("HKCU:\$($config.BasePath)")
+        }
+        
+        foreach ($regPath in $registryPaths) {
+            foreach ($setting in $config.Settings) {
+                $result = Test-RegistryCompliance -Path $regPath -Setting $setting -Remediate $runRemediation
+                $results += $result
+                Write-Output $result.Message
+            }
+        }
+    }
+}
+
+# Process MACHINE configurations
+if ($MachineConfigs.Count -gt 0) {
+    Write-Output ""
+    Write-Output "=========================================="
+    Write-Output "MACHINE CONFIGURATIONS"
+    Write-Output "=========================================="
+    
+    $configNum = 0
+    foreach ($config in $MachineConfigs) {
+        $configNum++
+        Write-Output ""
+        Write-Output "Config $configNum of $($MachineConfigs.Count): $($config.Name)"
+        Write-Output "Description: $($config.Description)"
+        Write-Output "Path: HKLM:\$($config.BasePath)"
+        Write-Output "------------------------------------------"
+        
+        $regPath = "HKLM:\$($config.BasePath)"
+        
+        foreach ($setting in $config.Settings) {
+            $result = Test-RegistryCompliance -Path $regPath -Setting $setting -Remediate $runRemediation
+            $results += $result
+            Write-Output $result.Message
+        }
+    }
+}
+
+#endregion
+
+#region Exit Logic
+
+Write-Output ""
+Write-Output "=========================================="
+
+$nonCompliant = @($results | Where-Object { $_.NeedsRemediation -eq $true })
+$remediationFailed = @($results | Where-Object { $_.RemediationSuccess -eq $false })
+$remediationSucceeded = @($results | Where-Object { $_.RemediationSuccess -eq $true })
+
+# Summary
+$totalSettings = $results.Count
+$compliantCount = $totalSettings - $nonCompliant.Count
+Write-Output "Total: $totalSettings | Compliant: $compliantCount | Non-Compliant: $($nonCompliant.Count)"
+
+if ($remediationFailed.Count -gt 0) {
+    Write-Output "[REGISTRYMGMT] FAILED - $($remediationFailed.Count) remediation(s) failed"
+    exit 1
+}
+
+if ($remediationSucceeded.Count -gt 0) {
+    Write-Output "[REGISTRYMGMT] SUCCESS - All settings remediated successfully"
+    exit 0
+}
+
+if ($nonCompliant.Count -gt 0) {
+    Write-Output "[REGISTRYMGMT] NON-COMPLIANT - Remediation needed"
+    exit 1
+}
+
+Write-Output "[REGISTRYMGMT] COMPLIANT - All settings are correct"
+exit 0
+
+#endregion
+
+#endregion ==================== END SCRIPT ===============================================
