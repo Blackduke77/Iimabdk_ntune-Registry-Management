@@ -16,7 +16,12 @@
     5. Upload both to Intune Remediations
 .NOTES
     Author: Martin Bengtsson
-    Version: 3.1
+    Version: 3.2
+    
+    Version History:
+    3.2 - Removed useless HKCU fallback when no users logged on. Script now skips
+          HKCU configurations gracefully and continues with HKLM processing.
+    3.1 - Added Set, Delete, and DeleteKey actions. Clean multi-line formatting.
     
     Supported registry types: String, ExpandString, DWord, QWord, Binary, MultiString
     Supported actions: Set (default), Delete (value), DeleteKey (entire key)
@@ -484,7 +489,9 @@ if ($UserConfigs.Count -gt 0) {
         Where-Object { $_ -match '^S-1-(5-21|12-1)-\d+-\d+-\d+-\d+$' }
     
     if (-not $cachedUserSIDs) {
-        Write-Output "[INFO] No user SIDs found - using HKCU fallback (not running as SYSTEM)"
+        Write-Output ""
+        Write-Output "[INFO] No user profiles currently loaded in registry"
+        Write-Output "[INFO] HKCU configurations will be skipped"
     }
 }
 
@@ -495,30 +502,27 @@ if ($UserConfigs.Count -gt 0) {
     Write-Output "USER CONFIGURATIONS"
     Write-Output "=========================================="
     
-    $configNum = 0
-    foreach ($config in $UserConfigs) {
-        $configNum++
+    if (-not $cachedUserSIDs) {
         Write-Output ""
-        Write-Output "Config $configNum of $($UserConfigs.Count): $($config.Name)"
-        Write-Output "Description: $($config.Description)"
-        Write-Output "Path: HKU:\<SID>\$($config.BasePath)"
-        Write-Output "------------------------------------------"
-        
-        # Get registry paths for all users
-        if ($cachedUserSIDs) {
-            $registryPaths = foreach ($sid in $cachedUserSIDs) {
-                "Registry::HKEY_USERS\$sid\$($config.BasePath)"
-            }
-        }
-        else {
-            $registryPaths = @("HKCU:\$($config.BasePath)")
-        }
-        
-        foreach ($regPath in $registryPaths) {
-            foreach ($setting in $config.Settings) {
-                $result = Test-RegistryCompliance -Path $regPath -Setting $setting -Remediate $runRemediation
-                $results += $result
-                Write-Output $result.Message
+        Write-Output "[SKIPPED] No users logged on - cannot process HKCU settings"
+    }
+    else {
+        $configNum = 0
+        foreach ($config in $UserConfigs) {
+            $configNum++
+            Write-Output ""
+            Write-Output "Config $configNum of $($UserConfigs.Count): $($config.Name)"
+            Write-Output "Description: $($config.Description)"
+            Write-Output "Path: HKU:\<SID>\$($config.BasePath)"
+            Write-Output "------------------------------------------"
+            
+            foreach ($sid in $cachedUserSIDs) {
+                $regPath = "Registry::HKEY_USERS\$sid\$($config.BasePath)"
+                foreach ($setting in $config.Settings) {
+                    $result = Test-RegistryCompliance -Path $regPath -Setting $setting -Remediate $runRemediation
+                    $results += $result
+                    Write-Output $result.Message
+                }
             }
         }
     }
