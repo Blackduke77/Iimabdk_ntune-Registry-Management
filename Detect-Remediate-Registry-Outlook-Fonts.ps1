@@ -55,14 +55,23 @@
     ---------------------------------------------------------
     
     ACTION: SET (create or update a value) - This is the default if Action is omitted
-    @{ Name = "ValueName"; Type = "String"; Value = "MyValue" }
-    @{ Name = "ValueName"; Type = "DWord"; Value = 1 }
+    @{
+        Name  = "ValueName"
+        Type  = "String"
+        Value = "MyValue"
+    }
     
     ACTION: DELETE (remove a specific value)
-    @{ Action = "Delete"; Name = "ValueName" }
+    @{
+        Action = "Delete"
+        Name   = "ValueName"
+    }
     
     ACTION: DELETEKEY (remove an entire registry key and all its contents)
-    @{ Action = "DeleteKey"; Name = "SubKeyName" }
+    @{
+        Action = "DeleteKey"
+        Name   = "SubKeyName"
+    }
     
     SUPPORTED TYPES FOR SET ACTION
     ------------------------------
@@ -82,7 +91,11 @@
                 Description = "Configure my app"
                 BasePath    = "SOFTWARE\MyApp"
                 Settings    = @(
-                    @{ Name = "Language"; Type = "String"; Value = "en-US" }
+                    @{
+                        Name  = "Language"
+                        Type  = "String"
+                        Value = "en-US"
+                    }
                 )
             }
         )
@@ -94,7 +107,11 @@
                 Description = "Disable Feature X via registry"
                 BasePath    = "SOFTWARE\Policies\MyCompany"
                 Settings    = @(
-                    @{ Name = "DisableFeatureX"; Type = "DWord"; Value = 1 }
+                    @{
+                        Name  = "DisableFeatureX"
+                        Type  = "DWord"
+                        Value = 1
+                    }
                 )
             }
         )
@@ -106,7 +123,10 @@
                 Description = "Delete telemetry setting"
                 BasePath    = "SOFTWARE\MyApp"
                 Settings    = @(
-                    @{ Action = "Delete"; Name = "TelemetryEnabled" }
+                    @{
+                        Action = "Delete"
+                        Name   = "TelemetryEnabled"
+                    }
                 )
             }
         )
@@ -118,7 +138,10 @@
                 Description = "Delete old app registry key"
                 BasePath    = "SOFTWARE"
                 Settings    = @(
-                    @{ Action = "DeleteKey"; Name = "OldAppToRemove" }
+                    @{
+                        Action = "DeleteKey"
+                        Name   = "OldAppToRemove"
+                    }
                 )
             }
         )
