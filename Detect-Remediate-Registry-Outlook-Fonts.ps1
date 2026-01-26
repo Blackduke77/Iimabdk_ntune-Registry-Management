@@ -555,6 +555,9 @@ if ($MachineConfigs.Count -gt 0) {
 Write-Output ""
 Write-Output "=========================================="
 
+# Check if HKCU was skipped due to no users
+$hkcuSkipped = ($UserConfigs.Count -gt 0 -and -not $cachedUserSIDs)
+
 $nonCompliant = @($results | Where-Object { $_.NeedsRemediation -eq $true })
 $remediationFailed = @($results | Where-Object { $_.RemediationSuccess -eq $false })
 $remediationSucceeded = @($results | Where-Object { $_.RemediationSuccess -eq $true })
@@ -563,6 +566,9 @@ $remediationSucceeded = @($results | Where-Object { $_.RemediationSuccess -eq $t
 $totalSettings = $results.Count
 $compliantCount = $totalSettings - $nonCompliant.Count
 Write-Output "Total: $totalSettings | Compliant: $compliantCount | Non-Compliant: $($nonCompliant.Count)"
+if ($hkcuSkipped) {
+    Write-Output "[INFO] HKCU settings were skipped (no users logged on)"
+}
 
 if ($remediationFailed.Count -gt 0) {
     Write-Output "[REGISTRYMGMT] FAILED - $($remediationFailed.Count) remediation(s) failed"
@@ -577,6 +583,12 @@ if ($remediationSucceeded.Count -gt 0) {
 if ($nonCompliant.Count -gt 0) {
     Write-Output "[REGISTRYMGMT] NON-COMPLIANT - Remediation needed"
     exit 1
+}
+
+# If nothing was processed (e.g., only HKCU configs but no users), exit compliant
+if ($totalSettings -eq 0 -and $hkcuSkipped) {
+    Write-Output "[REGISTRYMGMT] COMPLIANT - No settings to process (HKCU skipped, no HKLM configs)"
+    exit 0
 }
 
 Write-Output "[REGISTRYMGMT] COMPLIANT - All settings are correct"
