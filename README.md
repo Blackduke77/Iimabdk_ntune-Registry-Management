@@ -1,6 +1,6 @@
 # Intune Registry Management
 
-A PowerShell template for managing registry settings on Windows devices using **Microsoft Intune Remediations**.
+The only PowerShell script you need to manage registry on Windows devices using **Microsoft Intune Remediations**.
 
 ## Features
 
@@ -19,18 +19,80 @@ A PowerShell template for managing registry settings on Windows devices using **
    - Remediation: `$runRemediation = $true`
 4. Upload to **Intune** > **Devices** > **Scripts and remediations** > **Remediations**
 
-## Configuration example
+## Configuration examples
+
+### Set user registry values (HKCU)
 
 ```powershell
 $UserConfigs = @(
     @{
-        Name        = "My Setting"
-        Description = "What this does"
-        BasePath    = "SOFTWARE\MyApp"
+        Name        = "Hide New Outlook Toggle"
+        Description = "Hide the Try the new Outlook toggle in classic Outlook"
+        BasePath    = "SOFTWARE\Microsoft\Office\16.0\Outlook\Options\General"
         Settings    = @(
-            @{ Name = "SettingName"; Type = "String"; Value = "SettingValue" }
-            @{ Action = "Delete"; Name = "UnwantedValue" }
-            @{ Action = "DeleteKey"; Name = "OldSubKey" }
+            @{ Name = "HideNewOutlookToggle"; Type = "DWord"; Value = 1 }
+        )
+    }
+    @{
+        Name        = "OneDrive Known Folders"
+        Description = "Silence the Known Folder Move prompt"
+        BasePath    = "SOFTWARE\Microsoft\OneDrive"
+        Settings    = @(
+            @{ Name = "SilentAccountConfig"; Type = "DWord"; Value = 1 }
+        )
+    }
+)
+```
+
+### Set machine registry values (HKLM)
+
+```powershell
+$MachineConfigs = @(
+    @{
+        Name        = "Disable Windows Copilot"
+        Description = "Turn off Windows Copilot via policy"
+        BasePath    = "SOFTWARE\Policies\Microsoft\Windows\WindowsCopilot"
+        Settings    = @(
+            @{ Name = "TurnOffWindowsCopilot"; Type = "DWord"; Value = 1 }
+        )
+    }
+    @{
+        Name        = "Edge Browser Settings"
+        Description = "Configure Edge homepage and startup"
+        BasePath    = "SOFTWARE\Policies\Microsoft\Edge"
+        Settings    = @(
+            @{ Name = "HomepageLocation"; Type = "String"; Value = "https://intranet.company.com" }
+            @{ Name = "RestoreOnStartup"; Type = "DWord"; Value = 4 }
+        )
+    }
+)
+```
+
+### Delete registry values
+
+```powershell
+$UserConfigs = @(
+    @{
+        Name        = "Remove Teams Classic"
+        Description = "Delete leftover Teams Machine-Wide Installer entries"
+        BasePath    = "SOFTWARE\Microsoft\Office\Teams"
+        Settings    = @(
+            @{ Action = "Delete"; Name = "PreventInstallationFromMsi" }
+        )
+    }
+)
+```
+
+### Delete entire registry keys
+
+```powershell
+$MachineConfigs = @(
+    @{
+        Name        = "Remove Legacy App"
+        Description = "Clean up registry from uninstalled application"
+        BasePath    = "SOFTWARE"
+        Settings    = @(
+            @{ Action = "DeleteKey"; Name = "OldVendor" }
         )
     }
 )
