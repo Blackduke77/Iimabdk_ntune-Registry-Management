@@ -1,5 +1,7 @@
 # Intune Registry Management
 
+**Version 3.3** | Author: [Martin Bengtsson](https://www.imab.dk)
+
 The only PowerShell script you need to manage registry on Windows devices using **Microsoft Intune Remediations**.
 
 ## Features
@@ -126,9 +128,7 @@ $MachineConfigs = @(
 )
 ```
 
-## Version
-
-**Current version: 3.3**
+## Version History
 
 | Version | Changes |
 |---------|---------|
@@ -157,7 +157,3 @@ $MaxLogSizeMB = 4                                      # Rotate when log exceeds
 2026-02-01 14:30:00 [REMEDIATE] [REMEDIATED] Author (String)
 2026-02-01 14:30:00 [REMEDIATE] [REGISTRYMGMT] SUCCESS - All settings remediated successfully
 ```
-
-## Author
-
-Martin Bengtsson - [imab.dk](https://www.imab.dk)
