@@ -1,6 +1,6 @@
 # Intune Registry Management
 
-**Version 3.3** | Author: [Martin Bengtsson](https://www.imab.dk)
+**Version 3.3** | Author: [Martin Bengtsson](https://www.imab.dk) | 📝 [Blog post](https://www.imab.dk/the-only-powershell-script-you-need-to-manage-registry-on-windows-devices-using-microsoft-intune/)
 
 The only PowerShell script you need to manage registry on Windows devices using **Microsoft Intune Remediations**.
 
