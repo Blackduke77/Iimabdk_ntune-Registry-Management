@@ -16,9 +16,13 @@
     5. Upload both to Intune Remediations
 .NOTES
     Author: Martin Bengtsson
-    Version: 3.2
+    Blog: https://www.imab.dk
+    Version: 3.3
     
     Version History:
+    3.3 - Added Write-Log function for dual output (Intune portal + local log file).
+          Log location: $env:ProgramData\Microsoft\IntuneManagementExtension\Logs\
+          Configurable log file name ($LogFileName) and size-based rotation ($MaxLogSizeMB).
     3.2 - Removed useless HKCU fallback when no users logged on. Script now skips
           HKCU configurations gracefully and continues with HKLM processing.
     3.1 - Added Set, Delete, and DeleteKey actions. Clean multi-line formatting.
@@ -26,6 +30,8 @@
     Supported registry types: String, ExpandString, DWord, QWord, Binary, MultiString
     Supported actions: Set (default), Delete (value), DeleteKey (entire key)
     Scopes: $UserConfigs (per-user via HKU), $MachineConfigs (HKLM)
+    
+    Log format: yyyy-MM-dd HH:mm:ss [DETECT/REMEDIATE] [PREFIX] Message
 #>
 
 #region ==================== CONFIGURATION - MODIFY THIS SECTION ====================
@@ -160,6 +166,14 @@
     For Intune: Create TWO copies of this script:
     1. Detection script:   $runRemediation = $false
     2. Remediation script: $runRemediation = $true
+    
+    STEP 5: CONFIGURE LOGGING (optional)
+    ------------------------------------
+    • $LogFileName  = Name of the log file (without .log extension)
+                      Example: "RegistryMgmt-OutlookFonts"
+    • $MaxLogSizeMB = Maximum log file size before rotation (default: 4)
+    
+    Log files are stored in: $env:ProgramData\Microsoft\IntuneManagementExtension\Logs\
 #>
 
 # ============ USER CONFIGURATIONS (HKCU / HKU) ============
@@ -215,14 +229,41 @@ $MachineConfigs = @(
 )
 
 # Script behavior - change this for detection vs remediation script
-$runRemediation = $true  # $false = detection only, $true = detection + remediation
+$runRemediation = $false  # $false = detection only, $true = detection + remediation
+
+# Logging configuration
+$LogFileName = "RegistryMgmt"  # Change per script (e.g., "RegistryMgmt-OutlookFonts")
+$MaxLogSizeMB = 4
 
 #endregion ==================== END CONFIGURATION ========================================
 
 
 #region ==================== DO NOT MODIFY BELOW THIS LINE ===============================
 
+# Derived logging values
+[string]$LogFile = "$env:ProgramData\Microsoft\IntuneManagementExtension\Logs\$LogFileName.log"
+[string]$ScriptMode = if ($runRemediation) { "REMEDIATE" } else { "DETECT" }
+
 #region Helper Functions
+
+function Write-Log {
+    <#
+    .SYNOPSIS
+        Writes to both console (for Intune portal) and local log file.
+    #>
+    param([string]$Message)
+    
+    Write-Output $Message
+    if ([string]::IsNullOrWhiteSpace($Message)) { return }
+    
+    try {
+        if ((Test-Path $LogFile) -and ((Get-Item $LogFile).Length / 1MB) -ge $MaxLogSizeMB) {
+            Move-Item -Path $LogFile -Destination "$LogFile.old" -Force -ErrorAction SilentlyContinue
+        }
+        Add-Content -Path $LogFile -Value "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') [$ScriptMode] $Message" -ErrorAction SilentlyContinue
+    }
+    catch { }
+}
 
 function Get-RegistryValue {
     <#
@@ -447,24 +488,24 @@ function Test-RegistryCompliance {
                         $newValue = Get-RegistryValue -Path $Path -Name $Setting.Name -Type $Setting.Type
                         if (Compare-RegistryValue -CurrentValue $newValue -ExpectedValue $Setting.Value -Type $Setting.Type) {
                             $result.RemediationSuccess = $true
-                            $result.Message = "[REMEDIATED] $($Setting.Name)"
+                            $result.Message = "[REMEDIATED] $($Setting.Name) ($($Setting.Type))"
                         }
                         else {
                             $result.RemediationSuccess = $false
-                            $result.Message = "[ERROR] $($Setting.Name) - Verification failed after remediation"
+                            $result.Message = "[ERROR] $($Setting.Name) ($($Setting.Type)) - Verification failed"
                         }
                     }
                     catch {
                         $result.RemediationSuccess = $false
-                        $result.Message = "[ERROR] $($Setting.Name) - $($_.Exception.Message)"
+                        $result.Message = "[ERROR] $($Setting.Name) ($($Setting.Type)) - $($_.Exception.Message)"
                     }
                 }
                 else {
-                    $result.Message = "[NON-COMPLIANT] $($Setting.Name) ($displayCurrent)"
+                    $result.Message = "[NON-COMPLIANT] $($Setting.Name) ($($Setting.Type)) - $displayCurrent"
                 }
             }
             else {
-                $result.Message = "[COMPLIANT] $($Setting.Name)"
+                $result.Message = "[COMPLIANT] $($Setting.Name) ($($Setting.Type))"
             }
         }
     }
@@ -476,9 +517,7 @@ function Test-RegistryCompliance {
 
 #region Main Execution
 
-Write-Output "=========================================="
-Write-Output "Registry Management - $(if ($runRemediation) { 'REMEDIATION' } else { 'DETECTION' })"
-Write-Output "=========================================="
+Write-Log "[START] Registry Management - $(if ($runRemediation) { 'REMEDIATION' } else { 'DETECTION' })"
 
 $results = @()
 
@@ -489,39 +528,29 @@ if ($UserConfigs.Count -gt 0) {
         Where-Object { $_ -match '^S-1-(5-21|12-1)-\d+-\d+-\d+-\d+$' }
     
     if (-not $cachedUserSIDs) {
-        Write-Output ""
-        Write-Output "[INFO] No user profiles currently loaded in registry"
-        Write-Output "[INFO] HKCU configurations will be skipped"
+        Write-Log "[WARNING] No user profiles currently loaded in registry"
+        Write-Log "[WARNING] HKCU configurations will be skipped"
     }
 }
 
 # Process USER configurations
 if ($UserConfigs.Count -gt 0) {
-    Write-Output ""
-    Write-Output "=========================================="
-    Write-Output "USER CONFIGURATIONS"
-    Write-Output "=========================================="
-    
     if (-not $cachedUserSIDs) {
-        Write-Output ""
-        Write-Output "[SKIPPED] No users logged on - cannot process HKCU settings"
+        Write-Log "[SKIPPED] No users logged on - cannot process HKCU settings"
     }
     else {
         $configNum = 0
         foreach ($config in $UserConfigs) {
             $configNum++
-            Write-Output ""
-            Write-Output "Config $configNum of $($UserConfigs.Count): $($config.Name)"
-            Write-Output "Description: $($config.Description)"
-            Write-Output "Path: HKU:\<SID>\$($config.BasePath)"
-            Write-Output "------------------------------------------"
+            Write-Log "[USER] Config $configNum of $($UserConfigs.Count): $($config.Name) - $($config.Description)"
+            Write-Log "[PATH] HKU:\<SID>\$($config.BasePath)"
             
             foreach ($sid in $cachedUserSIDs) {
                 $regPath = "Registry::HKEY_USERS\$sid\$($config.BasePath)"
                 foreach ($setting in $config.Settings) {
                     $result = Test-RegistryCompliance -Path $regPath -Setting $setting -Remediate $runRemediation
                     $results += $result
-                    Write-Output $result.Message
+                    Write-Log $result.Message
                 }
             }
         }
@@ -530,26 +559,18 @@ if ($UserConfigs.Count -gt 0) {
 
 # Process MACHINE configurations
 if ($MachineConfigs.Count -gt 0) {
-    Write-Output ""
-    Write-Output "=========================================="
-    Write-Output "MACHINE CONFIGURATIONS"
-    Write-Output "=========================================="
-    
     $configNum = 0
     foreach ($config in $MachineConfigs) {
         $configNum++
-        Write-Output ""
-        Write-Output "Config $configNum of $($MachineConfigs.Count): $($config.Name)"
-        Write-Output "Description: $($config.Description)"
-        Write-Output "Path: HKLM:\$($config.BasePath)"
-        Write-Output "------------------------------------------"
+        Write-Log "[MACHINE] Config $configNum of $($MachineConfigs.Count): $($config.Name) - $($config.Description)"
+        Write-Log "[PATH] HKLM:\$($config.BasePath)"
         
         $regPath = "HKLM:\$($config.BasePath)"
         
         foreach ($setting in $config.Settings) {
             $result = Test-RegistryCompliance -Path $regPath -Setting $setting -Remediate $runRemediation
             $results += $result
-            Write-Output $result.Message
+            Write-Log $result.Message
         }
     }
 }
@@ -557,9 +578,6 @@ if ($MachineConfigs.Count -gt 0) {
 #endregion
 
 #region Exit Logic
-
-Write-Output ""
-Write-Output "=========================================="
 
 # Check if HKCU was skipped due to no users
 $hkcuSkipped = ($UserConfigs.Count -gt 0 -and -not $cachedUserSIDs)
@@ -571,33 +589,33 @@ $remediationSucceeded = @($results | Where-Object { $_.RemediationSuccess -eq $t
 # Summary
 $totalSettings = $results.Count
 $compliantCount = $totalSettings - $nonCompliant.Count
-Write-Output "Total: $totalSettings | Compliant: $compliantCount | Non-Compliant: $($nonCompliant.Count)"
+Write-Log "[SUMMARY] Total: $totalSettings | Compliant: $compliantCount | Non-Compliant: $($nonCompliant.Count)"
 if ($hkcuSkipped) {
-    Write-Output "[INFO] HKCU settings were skipped (no users logged on)"
+    Write-Log "[WARNING] HKCU settings were skipped (no users logged on)"
 }
 
 if ($remediationFailed.Count -gt 0) {
-    Write-Output "[REGISTRYMGMT] FAILED - $($remediationFailed.Count) remediation(s) failed"
+    Write-Log "[REGISTRYMGMT] FAILED - $($remediationFailed.Count) remediation(s) failed"
     exit 1
 }
 
 if ($remediationSucceeded.Count -gt 0) {
-    Write-Output "[REGISTRYMGMT] SUCCESS - All settings remediated successfully"
+    Write-Log "[REGISTRYMGMT] SUCCESS - All settings remediated successfully"
     exit 0
 }
 
 if ($nonCompliant.Count -gt 0) {
-    Write-Output "[REGISTRYMGMT] NON-COMPLIANT - Remediation needed"
+    Write-Log "[REGISTRYMGMT] NON-COMPLIANT - Remediation needed"
     exit 1
 }
 
 # If nothing was processed (e.g., only HKCU configs but no users), exit compliant
 if ($totalSettings -eq 0 -and $hkcuSkipped) {
-    Write-Output "[REGISTRYMGMT] COMPLIANT - No settings to process (HKCU skipped, no HKLM configs)"
+    Write-Log "[REGISTRYMGMT] COMPLIANT - No settings to process (HKCU skipped, no HKLM configs)"
     exit 0
 }
 
-Write-Output "[REGISTRYMGMT] COMPLIANT - All settings are correct"
+Write-Log "[REGISTRYMGMT] COMPLIANT - All settings are correct"
 exit 0
 
 #endregion
