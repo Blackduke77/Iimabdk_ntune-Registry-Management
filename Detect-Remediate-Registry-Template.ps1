@@ -170,7 +170,7 @@
     STEP 5: CONFIGURE LOGGING (optional)
     ------------------------------------
     • $LogFileName  = Name of the log file (without .log extension)
-                      Example: "RegistryMgmt-OutlookFonts"
+                      Example: "Intune-Registry-Management-OutlookFonts"
     • $MaxLogSizeMB = Maximum log file size before rotation (default: 4)
     
     Log files are stored in: $env:ProgramData\Microsoft\IntuneManagementExtension\Logs\
@@ -232,7 +232,7 @@ $MachineConfigs = @(
 $runRemediation = $false  # $false = detection only, $true = detection + remediation
 
 # Logging configuration
-$LogFileName = "RegistryMgmt"  # Change per script (e.g., "RegistryMgmt-OutlookFonts")
+$LogFileName = "Intune-Registry-Management"  # Change per script (e.g., "Intune-Registry-Management-OutlookFonts")
 $MaxLogSizeMB = 4
 
 #endregion ==================== END CONFIGURATION ========================================

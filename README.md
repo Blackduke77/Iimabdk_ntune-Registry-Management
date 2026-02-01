@@ -145,8 +145,8 @@ Script output is written to both:
 ### Configuration
 
 ```powershell
-$LogFileName = "RegistryMgmt-MyScript"  # Name your log file
-$MaxLogSizeMB = 4                        # Rotate when log exceeds this size
+$LogFileName = "Intune-Registry-Management-MyScript"  # Name your log file
+$MaxLogSizeMB = 4                                      # Rotate when log exceeds this size
 ```
 
 ### Log format
