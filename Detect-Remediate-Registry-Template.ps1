@@ -229,7 +229,7 @@ $MachineConfigs = @(
 )
 
 # Script behavior - change this for detection vs remediation script
-$runRemediation = $false  # $false = detection only, $true = detection + remediation
+$runRemediation = $true  # $false = detection only, $true = detection + remediation
 
 # Logging configuration
 $LogFileName = "Intune-Registry-Management"  # Change per script (e.g., "Intune-Registry-Management-OutlookFonts")
